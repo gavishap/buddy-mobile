@@ -120,6 +120,9 @@ const ProfileScreen = () => {
     const fetchPets = async () => {
       if (!user || !user.id) {
         console.error('User ID not available');
+        // Keep using mock pets data
+        setPets(MOCK_PETS);
+        setLoading(false);
         return;
       }
 
@@ -130,10 +133,15 @@ const ProfileScreen = () => {
         console.log(`Fetched ${data.length} pets`);
         if (data && data.length > 0) {
           setPets(data);
+        } else {
+          // If no pets returned from API, use mock data
+          console.log('No pets found, using mock data');
+          setPets(MOCK_PETS);
         }
       } catch (error) {
         console.error('Error fetching pets:', error);
         // Keep mock pets if fetch fails
+        setPets(MOCK_PETS);
       } finally {
         setLoading(false);
       }

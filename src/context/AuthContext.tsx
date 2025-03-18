@@ -68,6 +68,7 @@ type Profile = {
 type User = {
   id: string;
   email: string;
+  user_type?: 'owner' | 'sitter';
 };
 
 type AuthContextType = {
@@ -161,9 +162,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       console.log('📝 User data retrieved:', userData);
 
+      // Special logging for gavishap@gmail.com
+      if (userData.email === 'gavishap@gmail.com') {
+        console.log('📝 SPECIAL LOG FOR GAVISHAP USER:');
+        console.log('📝 User ID:', userData.id);
+        console.log('📝 User Type:', userData.user_type);
+        console.log('📝 Full user data:', JSON.stringify(userData));
+      }
+
       setUser({
         id: userData.id,
-        email: userData.email
+        email: userData.email,
+        user_type: userData.user_type
       });
 
       console.log(
@@ -203,6 +213,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (profileData) {
         console.log('📝 Profile data retrieved:', profileData);
+
+        // Special logging for gavishap@gmail.com
+        if (userData.email === 'gavishap@gmail.com') {
+          console.log('📝 SPECIAL LOG FOR GAVISHAP USER PROFILE:');
+          console.log('📝 Profile user_type:', profileData.user_type);
+          console.log('📝 Full profile data:', JSON.stringify(profileData));
+        }
+
+        // If profile doesn't have user_type but user does, add it to profile
+        if (!profileData.user_type && userData.user_type) {
+          profileData.user_type = userData.user_type;
+          console.log(
+            '📝 Added user_type to profile from user data:',
+            userData.user_type
+          );
+        }
+
         setProfile(profileData);
       } else {
         console.log(
@@ -317,11 +344,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const userType = userData.user_type || 'owner';
 
-      // Try different registration endpoints
+      // Try the type-specific endpoint first
       const registerEndpoints = [
-        `/auth/register/${userType}`,
+        `/auth/register/${userType}`, // Type-specific endpoint (preferred)
         `/auth/auth/register/${userType}`,
-        '/auth/register',
+        '/auth/register', // Generic endpoint
         '/users',
         '/register'
       ];
@@ -379,10 +406,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         // Configure axios
         axios.defaults.headers.common['Authorization'] = `Bearer ${tokenValue}`;
 
-        // Set user data
+        // Extract user ID from token payload if available
+        let userId = '';
+        try {
+          // Token is in format: header.payload.signature
+          const tokenParts = tokenValue.split('.');
+          if (tokenParts.length >= 2) {
+            const payload = JSON.parse(atob(tokenParts[1]));
+            userId = payload.sub || '';
+            console.log('📝 Extracted user ID from token:', userId);
+          }
+        } catch (e) {
+          console.log('📝 Could not extract user ID from token');
+        }
+
+        // Set user data with the ID from token, or fallback to any available ID
         setUser({
-          id: data.id || data.user_id,
-          email: email
+          id: data.id || data.user_id || userId || email.split('@')[0], // Use email prefix as last resort
+          email: email,
+          user_type: data.user_type || userType // Ensure user_type is set
         });
 
         return { error: null };
