@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../../context/AuthContext';
 
 // Mock data for demonstration
 const MOCK_PROFILE = {
@@ -63,6 +64,7 @@ const MOCK_BOOKINGS = [
 
 const ProfileScreen = () => {
   const navigation = useNavigation();
+  const { signOut } = useAuth();
   const [profile, setProfile] = useState(MOCK_PROFILE);
   const [pets, setPets] = useState(MOCK_PETS);
   const [bookings, setBookings] = useState(MOCK_BOOKINGS);
@@ -89,9 +91,18 @@ const ProfileScreen = () => {
       },
       {
         text: 'Logout',
-        onPress: () => {
-          // In a real app, implement logout logic here
-          Alert.alert('Logged Out', 'You have been logged out successfully');
+        onPress: async () => {
+          try {
+            await signOut();
+            // No need to navigate as the Navigation component will automatically redirect to Auth
+            console.log('User signed out successfully');
+          } catch (error) {
+            console.error('Error signing out:', error);
+            Alert.alert(
+              'Error',
+              'There was a problem signing out. Please try again.'
+            );
+          }
         }
       }
     ]);

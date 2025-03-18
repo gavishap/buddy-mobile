@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Animated
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
@@ -30,6 +31,92 @@ const OwnerSignupScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Password validation state
+  const [passwordStrength, setPasswordStrength] = useState<
+    'weak' | 'medium' | 'strong' | ''
+  >('');
+  const [passwordFeedback, setPasswordFeedback] = useState('');
+  const [passwordMatch, setPasswordMatch] = useState(true);
+
+  // Toast notification state
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<'success' | 'error'>(
+    'error'
+  );
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [fadeAnim] = useState(new Animated.Value(0));
+
+  // Function to show feedback toast
+  const showFeedbackToast = (type: 'success' | 'error', message: string) => {
+    setFeedbackType(type);
+    setFeedbackMessage(message);
+    setShowFeedback(true);
+
+    // Animate the toast in
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true
+    }).start();
+
+    // Hide the toast after 3 seconds
+    setTimeout(() => {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true
+      }).start(() => {
+        setShowFeedback(false);
+      });
+    }, 3000);
+  };
+
+  // Check password strength whenever password changes
+  useEffect(() => {
+    if (!password) {
+      setPasswordStrength('');
+      setPasswordFeedback('');
+      return;
+    }
+
+    // Check password strength
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChars = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    const isLongEnough = password.length >= 8;
+
+    const passedChecks = [
+      hasLowerCase,
+      hasUpperCase,
+      hasNumbers,
+      hasSpecialChars,
+      isLongEnough
+    ].filter(Boolean).length;
+
+    if (passedChecks <= 2) {
+      setPasswordStrength('weak');
+      setPasswordFeedback(
+        'Password is weak. Add uppercase, numbers, or special characters.'
+      );
+    } else if (passedChecks <= 4) {
+      setPasswordStrength('medium');
+      setPasswordFeedback(
+        'Password is medium strength. Add more variety for stronger security.'
+      );
+    } else {
+      setPasswordStrength('strong');
+      setPasswordFeedback('Password is strong!');
+    }
+
+    // Check if passwords match whenever either password field changes
+    if (confirmPassword && password !== confirmPassword) {
+      setPasswordMatch(false);
+    } else {
+      setPasswordMatch(true);
+    }
+  }, [password, confirmPassword]);
+
   const handleSignup = async () => {
     // Basic validation
     if (
@@ -40,19 +127,27 @@ const OwnerSignupScreen = () => {
       !confirmPassword ||
       !phone
     ) {
-      Alert.alert('Error', 'Please fill in all fields');
+      showFeedbackToast('error', 'Please fill in all fields');
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      showFeedbackToast('error', 'Passwords do not match');
+      return;
+    }
+
+    if (passwordStrength === 'weak') {
+      showFeedbackToast(
+        'error',
+        'Password is too weak. Please make it stronger.'
+      );
       return;
     }
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
+      showFeedbackToast('error', 'Please enter a valid email address');
       return;
     }
 
@@ -69,25 +164,39 @@ const OwnerSignupScreen = () => {
       setIsLoading(false);
 
       if (error) {
-        Alert.alert(
-          'Registration Failed',
+        showFeedbackToast(
+          'error',
           error.message || 'An error occurred during registration'
         );
       } else {
-        Alert.alert('Success', 'Your account has been created successfully!', [
-          {
-            text: 'OK',
-            onPress: () => navigation.navigate('Login')
-          }
-        ]);
+        showFeedbackToast(
+          'success',
+          'Your account has been created successfully!'
+        );
+        // Navigate to login after showing success message
+        setTimeout(() => navigation.navigate('Login'), 2000);
       }
     } catch (error) {
       setIsLoading(false);
-      Alert.alert(
-        'Error',
+      showFeedbackToast(
+        'error',
         'An unexpected error occurred. Please try again later.'
       );
       console.error('Signup error:', error);
+    }
+  };
+
+  // Get the color for password strength indicator
+  const getPasswordStrengthColor = () => {
+    switch (passwordStrength) {
+      case 'weak':
+        return '#EF4444'; // red
+      case 'medium':
+        return '#F59E0B'; // amber
+      case 'strong':
+        return '#10B981'; // green
+      default:
+        return '#D1D5DB'; // gray
     }
   };
 
@@ -182,17 +291,45 @@ const OwnerSignupScreen = () => {
                   />
                 </TouchableOpacity>
               </View>
+
+              {/* Password strength indicator */}
+              {password && (
+                <View style={styles.passwordFeedbackContainer}>
+                  <View style={styles.strengthIndicator}>
+                    <View
+                      style={[
+                        styles.strengthBar,
+                        { backgroundColor: getPasswordStrengthColor() }
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.passwordFeedbackText,
+                      { color: getPasswordStrengthColor() }
+                    ]}
+                  >
+                    {passwordFeedback}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.formGroup}>
               <Text style={styles.label}>Confirm Password</Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  !passwordMatch && confirmPassword ? styles.inputError : null
+                ]}
                 placeholder="Confirm your password"
                 secureTextEntry={!showPassword}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
               />
+              {!passwordMatch && confirmPassword && (
+                <Text style={styles.errorText}>Passwords do not match</Text>
+              )}
             </View>
 
             <TouchableOpacity
@@ -200,9 +337,11 @@ const OwnerSignupScreen = () => {
               onPress={handleSignup}
               disabled={isLoading}
             >
-              <Text style={styles.buttonText}>
-                {isLoading ? 'Creating Account...' : 'Sign Up'}
-              </Text>
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Sign Up</Text>
+              )}
             </TouchableOpacity>
 
             <View style={styles.loginPrompt}>
@@ -214,6 +353,28 @@ const OwnerSignupScreen = () => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Feedback Toast */}
+      {showFeedback && (
+        <Animated.View
+          style={[
+            styles.feedbackContainer,
+            feedbackType === 'success'
+              ? styles.successContainer
+              : styles.errorContainer,
+            { opacity: fadeAnim }
+          ]}
+        >
+          <View style={styles.feedbackIconContainer}>
+            <MaterialIcons
+              name={feedbackType === 'success' ? 'check-circle' : 'error'}
+              size={24}
+              color="white"
+            />
+          </View>
+          <Text style={styles.feedbackText}>{feedbackMessage}</Text>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 };
@@ -250,17 +411,18 @@ const styles = StyleSheet.create({
   },
   formRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between'
+    justifyContent: 'space-between',
+    gap: 10
   },
   formGroup: {
-    marginBottom: 20,
-    flex: 1
+    flex: 1,
+    marginBottom: 20
   },
   label: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '500',
-    color: '#333',
-    marginBottom: 8
+    marginBottom: 8,
+    color: '#333'
   },
   input: {
     borderWidth: 1,
@@ -270,8 +432,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#f9f9f9'
   },
+  inputError: {
+    borderColor: '#EF4444' // red
+  },
   passwordContainer: {
     flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
@@ -283,37 +449,93 @@ const styles = StyleSheet.create({
     fontSize: 16
   },
   eyeIcon: {
-    padding: 12,
-    justifyContent: 'center',
-    alignItems: 'center'
+    padding: 12
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 14,
+    marginTop: 4
   },
   button: {
     backgroundColor: '#4f46e5',
     borderRadius: 8,
     padding: 16,
     alignItems: 'center',
-    marginTop: 10
+    marginTop: 10,
+    marginBottom: 20
   },
   buttonDisabled: {
     backgroundColor: '#a5a5a5'
   },
   buttonText: {
-    color: 'white',
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold'
   },
   loginPrompt: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 20
+    alignItems: 'center',
+    marginTop: 10
   },
   loginText: {
+    fontSize: 14,
     color: '#666',
     marginRight: 5
   },
   loginLink: {
+    fontSize: 14,
     color: '#4f46e5',
-    fontWeight: 'bold'
+    fontWeight: '600'
+  },
+  // Password strength styles
+  passwordFeedbackContainer: {
+    marginTop: 8
+  },
+  strengthIndicator: {
+    height: 4,
+    backgroundColor: '#D1D5DB',
+    borderRadius: 2,
+    marginBottom: 6
+  },
+  strengthBar: {
+    height: '100%',
+    width: '100%',
+    borderRadius: 2
+  },
+  passwordFeedbackText: {
+    fontSize: 12
+  },
+  // Feedback toast styles
+  feedbackContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 20,
+    right: 20,
+    borderRadius: 8,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5
+  },
+  successContainer: {
+    backgroundColor: '#10B981' // green
+  },
+  errorContainer: {
+    backgroundColor: '#EF4444' // red
+  },
+  feedbackIconContainer: {
+    marginRight: 12
+  },
+  feedbackText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1
   }
 });
 

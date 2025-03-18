@@ -122,14 +122,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       console.log('📝 Fetching user data...');
 
-      // Following the same pattern with duplicated 'auth'
-      const endpoint = '/auth/auth/me';
-      const fullUrl = `${API_URL}${endpoint}`;
+      // Try different user endpoints to find the correct one
+      const userEndpoints = [
+        '/auth/me', // Standard path
+        '/users/me', // API v1 uses this path
+        '/auth/auth/me', // Double auth path that was found in logs
+        '/me' // Root path
+      ];
 
-      console.log(`📝 Using user data endpoint: ${fullUrl}`);
+      let userData = null;
+      let error = null;
 
-      const response = await axios.get(fullUrl);
-      const userData = response.data;
+      // Try each endpoint until one works
+      for (const endpoint of userEndpoints) {
+        const fullUrl = `${API_URL}${endpoint}`;
+        console.log(`📝 Trying user data endpoint: ${fullUrl}`);
+
+        try {
+          const response = await axios.get(fullUrl);
+          userData = response.data;
+          console.log(
+            `📝 User data fetch succeeded with endpoint: ${endpoint}`
+          );
+          break; // Exit the loop if successful
+        } catch (err: any) {
+          console.log(
+            `📝 User data fetch failed with endpoint: ${endpoint}`,
+            err.message
+          );
+          error = err;
+        }
+      }
+
+      if (!userData) {
+        console.log('📝 All user data fetch attempts failed');
+        throw error || new Error('User data fetch failed with all endpoints');
+      }
 
       console.log('📝 User data retrieved:', userData);
 
@@ -142,26 +170,139 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         `📝 Attempting to fetch profile data for user ID: ${userData.id}`
       );
 
-      // Try to fetch profile data - this might also need the duplicate 'auth' pattern
-      try {
-        const profileEndpoint = `/auth/auth/profiles/${userData.id}`;
-        const profileUrl = `${API_URL}${profileEndpoint}`;
+      // Try different profile endpoints to find the correct one
+      const profileEndpoints = [
+        `/profiles/${userData.id}`,
+        `/auth/profiles/${userData.id}`,
+        `/auth/auth/profiles/${userData.id}`
+      ];
 
-        console.log(`📝 Using profile endpoint: ${profileUrl}`);
+      let profileData = null;
+      let profileError = null;
 
-        const { data: profileData } = await axios.get(profileUrl);
+      // Try each endpoint until one works
+      for (const endpoint of profileEndpoints) {
+        const fullUrl = `${API_URL}${endpoint}`;
+        console.log(`📝 Trying profile endpoint: ${fullUrl}`);
+
+        try {
+          const response = await axios.get(fullUrl);
+          profileData = response.data;
+          console.log(
+            `📝 Profile data fetch succeeded with endpoint: ${endpoint}`
+          );
+          break; // Exit the loop if successful
+        } catch (err: any) {
+          console.log(
+            `📝 Profile data fetch failed with endpoint: ${endpoint}`,
+            err.message
+          );
+          profileError = err;
+        }
+      }
+
+      if (profileData) {
         console.log('📝 Profile data retrieved:', profileData);
         setProfile(profileData);
-      } catch (profileError: any) {
-        console.error('📝 Error fetching profile data:', profileError.message);
-        console.log('📝 Will continue without profile data');
-        // Don't throw error here - we can proceed without profile data
+      } else {
+        console.log(
+          '📝 All profile data fetch attempts failed. Will continue without profile data.'
+        );
       }
     } catch (error) {
       console.error('📝 Error fetching user data:', error);
       console.log('📝 Will now sign out due to authentication failure');
       // If error, clear token and user data
       await signOut();
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      console.log('📝 Attempting login with:', email);
+
+      // Try different login endpoints
+      const loginEndpoints = [
+        '/auth/login', // Standard path
+        '/auth/auth/login', // Double auth path that was found in logs
+        '/login', // Root path
+        '/token' // OAuth2 standard
+      ];
+
+      let response = null;
+      let error = null;
+
+      // Try each endpoint until one works
+      for (const endpoint of loginEndpoints) {
+        const fullUrl = `${API_URL}${endpoint}`;
+        console.log(`📝 Trying login endpoint: ${fullUrl}`);
+
+        try {
+          // FastAPI OAuth2 endpoint expects x-www-form-urlencoded content
+          const params = new URLSearchParams();
+          params.append('username', email); // OAuth2 uses 'username' for login identifier
+          params.append('password', password);
+
+          console.log('📝 Login with params:', {
+            username: email,
+            password: '******'
+          });
+
+          response = await axios.post(fullUrl, params, {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            }
+          });
+          console.log(`📝 Login succeeded with endpoint: ${endpoint}`);
+          break; // Exit the loop if successful
+        } catch (err: any) {
+          console.log(
+            `📝 Login failed with endpoint: ${endpoint}`,
+            err.message
+          );
+          error = err;
+        }
+      }
+
+      if (!response) {
+        console.log('📝 All login attempts failed');
+        throw error || new Error('Login failed with all endpoints');
+      }
+
+      const { data } = response;
+      console.log('📝 Login successful, response:', data);
+
+      // Store token
+      console.log('📝 Storing authentication token');
+      // The token field could be access_token or token depending on the API
+      const tokenValue = data.access_token || data.token;
+      await SecureStore.setItemAsync('authToken', tokenValue);
+      setToken(tokenValue);
+
+      // Configure axios
+      console.log('📝 Setting authorization header');
+      axios.defaults.headers.common['Authorization'] = `Bearer ${tokenValue}`;
+
+      // Fetch user data to get the user ID
+      console.log('📝 Fetching user data');
+      await fetchUserData();
+
+      return { error: null };
+    } catch (error: any) {
+      console.error('📝 Login error:', error);
+      console.log('📝 Login error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+
+      return {
+        error: {
+          message:
+            error.response?.data?.detail ||
+            'Failed to sign in. Please check your credentials.'
+        }
+      };
     }
   };
 
@@ -174,13 +315,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log('📝 Starting registration process...');
       console.log('📝 User data:', userData);
 
-      // Use the correct endpoint based on the user_type
-      // The backend logs show that /api/v1/auth/auth/register/owner works (note the double 'auth')
       const userType = userData.user_type || 'owner';
-      const endpoint = `/auth/auth/register/${userType}`;
-      const fullUrl = `${API_URL}${endpoint}`;
 
-      console.log(`📝 Using registration endpoint: ${fullUrl}`);
+      // Try different registration endpoints
+      const registerEndpoints = [
+        `/auth/register/${userType}`,
+        `/auth/auth/register/${userType}`,
+        '/auth/register',
+        '/users',
+        '/register'
+      ];
+
+      let response = null;
+      let error = null;
 
       // Prepare the payload based on the data we saw in the logs
       const payload = {
@@ -189,29 +336,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         first_name: userData.first_name || '',
         last_name: userData.last_name || '',
         phone: userData.phone || '',
-        bio: userData.bio || ''
+        bio: userData.bio || '',
+        user_type: userType
       };
 
       console.log('📝 Sending payload:', payload);
 
-      const { data } = await axios.post(fullUrl, payload);
+      // Try each endpoint until one works
+      for (const endpoint of registerEndpoints) {
+        const fullUrl = `${API_URL}${endpoint}`;
+        console.log(`📝 Trying registration endpoint: ${fullUrl}`);
+
+        try {
+          response = await axios.post(fullUrl, payload);
+          console.log(`📝 Registration succeeded with endpoint: ${endpoint}`);
+          break; // Exit the loop if successful
+        } catch (err: any) {
+          console.log(
+            `📝 Registration failed with endpoint: ${endpoint}`,
+            err.message
+          );
+          error = err;
+        }
+      }
+
+      if (!response) {
+        console.log('📝 All registration attempts failed');
+        throw error || new Error('Registration failed with all endpoints');
+      }
+
+      const { data } = response;
       console.log('📝 Registration successful, response:', data);
 
       // If we get a token in response
-      if (data.access_token) {
+      if (data.access_token || data.token) {
         console.log('📝 Token received, storing token');
         // Store token
-        await SecureStore.setItemAsync('authToken', data.access_token);
-        setToken(data.access_token);
+        const tokenValue = data.access_token || data.token;
+        await SecureStore.setItemAsync('authToken', tokenValue);
+        setToken(tokenValue);
 
         // Configure axios
-        axios.defaults.headers.common[
-          'Authorization'
-        ] = `Bearer ${data.access_token}`;
+        axios.defaults.headers.common['Authorization'] = `Bearer ${tokenValue}`;
 
         // Set user data
         setUser({
-          id: data.id,
+          id: data.id || data.user_id,
           email: email
         });
 
@@ -235,68 +405,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           message:
             error.response?.data?.detail ||
             'Failed to create account. Please try again.'
-        }
-      };
-    }
-  };
-
-  const signIn = async (email: string, password: string) => {
-    try {
-      console.log('📝 Attempting login with:', email);
-
-      // Based on the registration pattern, the login endpoint might also have the duplicated 'auth'
-      const endpoint = '/auth/auth/login';
-      const fullUrl = `${API_URL}${endpoint}`;
-
-      console.log(`📝 Using login endpoint: ${fullUrl}`);
-
-      // FastAPI OAuth2 endpoint expects x-www-form-urlencoded content
-      const params = new URLSearchParams();
-      params.append('username', email); // OAuth2 uses 'username' for login identifier
-      params.append('password', password);
-
-      console.log('📝 Login with params:', {
-        username: email,
-        password: '******'
-      });
-
-      const { data } = await axios.post(fullUrl, params, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      });
-
-      console.log('📝 Login successful, response:', data);
-
-      // Store token
-      console.log('📝 Storing authentication token');
-      await SecureStore.setItemAsync('authToken', data.access_token);
-      setToken(data.access_token);
-
-      // Configure axios
-      console.log('📝 Setting authorization header');
-      axios.defaults.headers.common[
-        'Authorization'
-      ] = `Bearer ${data.access_token}`;
-
-      // Fetch user data to get the user ID
-      console.log('📝 Fetching user data');
-      await fetchUserData();
-
-      return { error: null };
-    } catch (error: any) {
-      console.error('📝 Login error:', error);
-      console.log('📝 Login error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
-
-      return {
-        error: {
-          message:
-            error.response?.data?.detail ||
-            'Failed to sign in. Please check your credentials.'
         }
       };
     }
