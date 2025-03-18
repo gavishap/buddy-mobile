@@ -27,7 +27,7 @@ const DashboardStack = () => (
 
 const FindSittersStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="FindSitters" component={FindSittersScreen} />
+    <Stack.Screen name="FindSittersScreen" component={FindSittersScreen} />
     <Stack.Screen name="SitterProfile" component={SitterProfileScreen} />
   </Stack.Navigator>
 );

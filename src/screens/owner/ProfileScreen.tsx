@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,25 +8,53 @@ import {
   SafeAreaView,
   Image,
   FlatList,
-  Alert
+  Alert,
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../context/AuthContext';
+import axios from 'axios';
 
-// Mock data for demonstration
-const MOCK_PROFILE = {
-  id: '123',
-  firstName: 'John',
-  lastName: 'Smith',
-  email: 'john.smith@example.com',
-  phone: '555-123-4567',
-  address: '123 Main St, Anytown, CA 12345',
-  profileImage: null, // In a real app, this would be a URI
-  joinDate: 'March 2022'
+// Define types
+type RootStackParamList = {
+  CreatePetProfile: undefined;
+  PetProfile: { petId: string };
 };
 
-const MOCK_PETS = [
+type NavigationProp = StackNavigationProp<RootStackParamList>;
+
+interface Pet {
+  id: string;
+  name: string;
+  type: string;
+  breed: string;
+  age: number;
+  image: string | null;
+}
+
+interface Booking {
+  id: string;
+  sitterName: string;
+  service: string;
+  date: string;
+  status: string;
+}
+
+// API URL
+const API_URL = Platform.select({
+  // For Android emulator, localhost is 10.0.2.2
+  android: 'http://10.0.2.2:8000/api/v1',
+  // For iOS simulator, localhost is localhost
+  ios: 'http://localhost:8000/api/v1',
+  // Fallback for web or any other platform
+  default: 'http://localhost:8000/api/v1'
+});
+
+// Backup mock data for pets and bookings in case API fails
+const MOCK_PETS: Pet[] = [
   {
     id: '1',
     name: 'Max',
@@ -45,7 +73,7 @@ const MOCK_PETS = [
   }
 ];
 
-const MOCK_BOOKINGS = [
+const MOCK_BOOKINGS: Booking[] = [
   {
     id: '1',
     sitterName: 'Sarah Johnson',
@@ -63,11 +91,57 @@ const MOCK_BOOKINGS = [
 ];
 
 const ProfileScreen = () => {
-  const navigation = useNavigation();
-  const { signOut } = useAuth();
-  const [profile, setProfile] = useState(MOCK_PROFILE);
-  const [pets, setPets] = useState(MOCK_PETS);
-  const [bookings, setBookings] = useState(MOCK_BOOKINGS);
+  const navigation = useNavigation<NavigationProp>();
+  const { user, profile: userProfile, signOut } = useAuth();
+
+  const [pets, setPets] = useState<Pet[]>(MOCK_PETS);
+  const [bookings, setBookings] = useState<Booking[]>(MOCK_BOOKINGS);
+  const [loading, setLoading] = useState(false);
+
+  // Use user data from auth context
+  const displayProfile = {
+    id: user?.id || '',
+    firstName: userProfile?.first_name || '',
+    lastName: userProfile?.last_name || '',
+    email: user?.email || userProfile?.email || '',
+    phone: userProfile?.phone || '',
+    address: userProfile?.address || '',
+    profileImage: userProfile?.avatar_url || null,
+    joinDate: userProfile?.created_at
+      ? new Date(userProfile.created_at).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long'
+        })
+      : 'New User'
+  };
+
+  useEffect(() => {
+    // Fetch pets for this user when the profile loads
+    const fetchPets = async () => {
+      if (!user || !user.id) {
+        console.error('User ID not available');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        console.log(`Fetching pets for user ID: ${user.id}`);
+        const { data } = await axios.get(`${API_URL}/pets/owner/${user.id}`);
+        console.log(`Fetched ${data.length} pets`);
+        if (data && data.length > 0) {
+          setPets(data);
+        }
+      } catch (error) {
+        console.error('Error fetching pets:', error);
+        // Keep mock pets if fetch fails
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Fetch user pets
+    fetchPets();
+  }, [user]);
 
   const handleEditProfile = () => {
     Alert.alert('Edit Profile', 'Navigate to profile edit screen');
@@ -78,7 +152,7 @@ const ProfileScreen = () => {
     navigation.navigate('CreatePetProfile');
   };
 
-  const handleViewPet = petId => {
+  const handleViewPet = (petId: string) => {
     // In a real app, navigate to the pet profile screen
     navigation.navigate('PetProfile', { petId });
   };
@@ -108,7 +182,7 @@ const ProfileScreen = () => {
     ]);
   };
 
-  const renderPetItem = ({ item }) => (
+  const renderPetItem = ({ item }: { item: Pet }) => (
     <TouchableOpacity
       style={styles.petCard}
       onPress={() => handleViewPet(item.id)}
@@ -129,7 +203,7 @@ const ProfileScreen = () => {
     </TouchableOpacity>
   );
 
-  const renderBookingItem = ({ item }) => (
+  const renderBookingItem = ({ item }: { item: Booking }) => (
     <View style={styles.bookingItem}>
       <View style={styles.bookingInfo}>
         <Text style={styles.bookingService}>{item.service}</Text>
@@ -159,15 +233,16 @@ const ProfileScreen = () => {
       <ScrollView style={styles.scrollView}>
         <View style={styles.profileHeader}>
           <View style={styles.profileImageContainer}>
-            {profile.profileImage ? (
+            {displayProfile.profileImage ? (
               <Image
-                source={{ uri: profile.profileImage }}
+                source={{ uri: displayProfile.profileImage }}
                 style={styles.profileImage}
               />
             ) : (
               <View style={styles.profileImagePlaceholder}>
                 <Text style={styles.profileImagePlaceholderText}>
-                  {profile.firstName.charAt(0) + profile.lastName.charAt(0)}
+                  {displayProfile.firstName.charAt(0) +
+                    displayProfile.lastName.charAt(0)}
                 </Text>
               </View>
             )}
@@ -177,7 +252,7 @@ const ProfileScreen = () => {
           </View>
 
           <Text style={styles.profileName}>
-            {profile.firstName} {profile.lastName}
+            {displayProfile.firstName} {displayProfile.lastName}
           </Text>
 
           <TouchableOpacity
@@ -198,7 +273,9 @@ const ProfileScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {pets.length > 0 ? (
+          {loading ? (
+            <ActivityIndicator size="large" color="#4f46e5" />
+          ) : pets.length > 0 ? (
             <FlatList
               data={pets}
               renderItem={renderPetItem}
@@ -257,19 +334,19 @@ const ProfileScreen = () => {
           <View style={styles.accountInfo}>
             <View style={styles.accountRow}>
               <Text style={styles.accountLabel}>Email:</Text>
-              <Text style={styles.accountValue}>{profile.email}</Text>
+              <Text style={styles.accountValue}>{displayProfile.email}</Text>
             </View>
             <View style={styles.accountRow}>
               <Text style={styles.accountLabel}>Phone:</Text>
-              <Text style={styles.accountValue}>{profile.phone}</Text>
+              <Text style={styles.accountValue}>{displayProfile.phone}</Text>
             </View>
             <View style={styles.accountRow}>
               <Text style={styles.accountLabel}>Address:</Text>
-              <Text style={styles.accountValue}>{profile.address}</Text>
+              <Text style={styles.accountValue}>{displayProfile.address}</Text>
             </View>
             <View style={styles.accountRow}>
               <Text style={styles.accountLabel}>Member Since:</Text>
-              <Text style={styles.accountValue}>{profile.joinDate}</Text>
+              <Text style={styles.accountValue}>{displayProfile.joinDate}</Text>
             </View>
           </View>
         </View>

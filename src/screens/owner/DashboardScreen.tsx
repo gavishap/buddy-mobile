@@ -7,7 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   SafeAreaView,
-  ScrollView
+  ScrollView,
+  Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -16,7 +17,14 @@ import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 
 // API URL
-const API_URL = 'http://localhost:8000';
+const API_URL = Platform.select({
+  // For Android emulator, localhost is 10.0.2.2
+  android: 'http://10.0.2.2:8000/api/v1',
+  // For iOS simulator, localhost is localhost
+  ios: 'http://localhost:8000/api/v1',
+  // Fallback for web or any other platform
+  default: 'http://localhost:8000/api/v1'
+});
 
 type Booking = {
   id: string;
@@ -52,31 +60,43 @@ const DashboardScreen = () => {
   const fetchBookings = async () => {
     try {
       setLoading(true);
-      const { data } = await axios.get(`${API_URL}/bookings/owner/${user?.id}`);
+      if (!user || !user.id) {
+        console.error('User ID not available');
+        return;
+      }
+
+      console.log(`Fetching bookings for user ID: ${user.id}`);
+      const { data } = await axios.get(`${API_URL}/bookings/owner/${user.id}`);
+      console.log(`Fetched ${data.length} bookings`);
 
       // Fetch pet names and sitter names for each booking
       const bookingsWithDetails = await Promise.all(
         data.map(async (booking: Booking) => {
-          // Get pet name
-          const petResponse = await axios.get(
-            `${API_URL}/pets/${booking.pet_id}`
-          );
-          const petName = petResponse.data.name;
-
-          // Get sitter name if assigned
-          let sitterName = null;
-          if (booking.sitter_id) {
-            const sitterResponse = await axios.get(
-              `${API_URL}/profiles/${booking.sitter_id}`
+          try {
+            // Get pet name
+            const petResponse = await axios.get(
+              `${API_URL}/pets/${booking.pet_id}`
             );
-            sitterName = `${sitterResponse.data.first_name} ${sitterResponse.data.last_name}`;
-          }
+            const petName = petResponse.data.name;
 
-          return {
-            ...booking,
-            pet_name: petName,
-            sitter_name: sitterName
-          };
+            // Get sitter name if assigned
+            let sitterName = null;
+            if (booking.sitter_id) {
+              const sitterResponse = await axios.get(
+                `${API_URL}/profiles/${booking.sitter_id}`
+              );
+              sitterName = `${sitterResponse.data.first_name} ${sitterResponse.data.last_name}`;
+            }
+
+            return {
+              ...booking,
+              pet_name: petName,
+              sitter_name: sitterName
+            };
+          } catch (error) {
+            console.error('Error fetching details for booking:', error);
+            return booking;
+          }
         })
       );
 
